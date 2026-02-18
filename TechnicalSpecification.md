@@ -4,11 +4,70 @@ A high-performance C++ order matching engine for financial trading systems. This
 
 ## Overview
 
-The Order Matching Engine is a core component of trading systems that:
+The Order Matching Engine is a high-performance core component of trading systems that:
 - Maintains separate order books for buy and sell orders
 - Matches orders based on price crossing
 - Generates trades when matches occur
 - Handles partial fills and order removal
+- Provides thread-safe concurrent order processing via ConcurrentEngine
+- Uses thread-safe queuing (OrderQueue) for order submission
+- Implements a layered architecture: Threading → Business Logic → Data Structures
+
+## Architecture
+
+### Layered Design
+
+The engine uses a three-layer architecture for separation of concerns:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│   ConcurrentEngine (Threading Layer)                         │
+│  - Thread management & order queuing                         │
+│  - Engine loop polling & trade output                        │
+├──────────────────────────────────────────────────────────────┤
+│  MatchingEngine (Business Logic Layer)                       │
+│  - Order submission & trade polling                          │
+│  - Wrapper around OrderBook                                  │
+├──────────────────────────────────────────────────────────────┤
+│  OrderBook (Data Structure Layer)                            │
+│  - Buy/Sell books (sorted maps)                              │
+│  - Matching algorithm implementation                         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Components
+
+#### ConcurrentEngine
+- **Purpose**: Thread-safe order processing and trade output
+- **Key Methods**:
+  - `start()` - Spawns worker thread and starts engine loop
+  - `stop()` - Gracefully shuts down worker thread
+  - `submit_order(const Order&)` - Thread-safe order submission via queue
+- **Implementation**: Runs persistent worker thread with event loop polling OrderQueue
+- **Threading Model**: Single worker thread with OrderQueue for thread-safe order ingestion
+
+#### MatchingEngine
+- **Purpose**: Business logic orchestration
+- **Key Methods**:
+  - `submit_order(const Order&)` - Add order to book
+  - `poll_trades()` - Retrieve and clear pending trades
+  - `empty()` - Check if order book is empty
+- **State**: Encapsulates OrderBook instance
+
+#### OrderQueue
+- **Purpose**: Thread-safe order queue for producer-consumer pattern
+- **Key Methods**:
+  - `push(const Order&)` - Thread-safe order enqueue
+  - `pop(Order&)` - Thread-safe order dequeue (blocking)
+  - `shutdown()` - Signal queue termination
+- **Type**: Template-based queue with atomic synchronization
+
+### Data Structures
+
+- **Buy Book**: `std::map<double, std::deque<Order>>` (descending order by price)
+- **Sell Book**: `std::map<double, std::deque<Order>>` (ascending order by price)
+- **Order Queue**: `OrderQueue<Order>` (thread-safe FIFO with blocking pop)
+- **Maps** automatically sort by price, enabling O(1) access to best orders
 
 ## How It Works
 
@@ -143,11 +202,21 @@ The Order Matching Engine is a core component of trading systems that:
 ╚════════════════════════════════════════════════════════════════════════════╝
 ```
 
-## Data Structures
+## Trade Structure
 
-- **Buy Book**: `std::map<double, std::deque<Order>>` (descending order)
-- **Sell Book**: `std::map<double, std::deque<Order>>` (ascending order)
-- **Maps** automatically sort by price, enabling O(1) access to best orders
+```cpp
+struct Trade {
+    uint64_t buy_order_id;    // ID of matched buy order
+    uint64_t sell_order_id;   // ID of matched sell order
+    double price;              // Execution price (sell order price)
+    uint32_t quantity;         // Matched quantity
+};
+```
+
+**Trade Output Format:**
+```
+TRADES => [quantity] @ [price] | BUY Order ID [id] | SELL Order ID [id]
+```
 
 ## Matching Rules
 
@@ -155,6 +224,18 @@ The Order Matching Engine is a core component of trading systems that:
 2. **Execution Price** - Uses sell order price (the maker who posted first)
 3. **Quantity** - Trades minimum of buy and sell quantities
 4. **Cleanup** - Removes fully filled orders; keeps partial fills
+5. **Trade Recording** - Each match creates a Trade record with both order IDs
+
+## Concurrency Model
+
+### Threading Architecture
+- **Main Thread**: Submits orders via `ConcurrentEngine::submit_order()`
+- **Worker Thread**: Runs persistent `engine_loop()` that:
+  1. Pops orders from OrderQueue
+  2. Submits to MatchingEngine
+  3. Polls trades and outputs results
+- **Synchronization**: OrderQueue handles thread-safe order handoff
+- **Shutdown**: Graceful join on worker thread via `stop()` and `shutdown()`
 
 ## Building & Testing
 
@@ -169,7 +250,12 @@ cmake --build build
 ```bash
 ctest --test-dir build --output-on-failure
 # or directly
-./build/ome_tests
+./build/ome
+```
+
+### Run Application
+```bash
+./build/ome
 ```
 
 ## Project Structure
@@ -177,19 +263,30 @@ ctest --test-dir build --output-on-failure
 ```
 order-matching-engine/
 ├── src/
-│   ├── main.cpp
+│   ├── main.cpp                          # Entry point with multi-threaded producer example
 │   ├── concurrency/
-│   ├── engine/
-│   │   ├── Order.h
-│   │   ├── OrderBook.h
-│   │   ├── OrderBook.cpp
-│   │   └── Trade.h
-│   └── utils/
+│   │   └── OrderQueue.h                  # Thread-safe FIFO queue template
+│   └── engine/
+│       ├── Order.h                       # Order struct with side enum
+│       ├── OrderBook.h/.cpp              # Core matching algorithm & data structures
+│       ├── Trade.h                       # Trade struct with buy/sell order IDs
+│       ├── MatchingEngine.h/.cpp         # Business logic orchestrator
+│       └── ConcurrentEngine.h/.cpp       # Threading & worker loop
 ├── tests/
-│   └── OrderBookTest.cpp
+│   └── OrderBookMatchTest.cpp            # Comprehensive test suite
 ├── CMakeLists.txt
-└── README.md
+├── README.md
+└── TechnicalSpecification.md             # This file
 ```
+
+### Key Files
+
+- **Order.h**: Defines `Order` struct with fields (order_id, side, price, quantity, timestamp) and `OrderSide` enum
+- **Trade.h**: Defines `Trade` struct recording matched buy_order_id, sell_order_id, price, and quantity
+- **OrderBook.h/cpp**: Implements matching algorithm with cascading match logic
+- **MatchingEngine.h/cpp**: Wraps OrderBook, provides submit_order() and poll_trades() interface
+- **ConcurrentEngine.h/cpp**: Thread management, order queue consumer, trade output handler
+- **OrderQueue.h**: Thread-safe blocking queue for order ingestion
 
 ## Test Coverage
 
@@ -202,13 +299,20 @@ The test suite includes comprehensive scenarios:
 - Multiple orders at same price level
 - Multiple price levels
 - Trade price correctness
+- Order ID tracking in trade records
 
-## Performance
+## Performance Characteristics
 
-- **O(log n)** map lookup for best orders
-- **O(1)** amortized for trade generation
-- **O(1)** for order removal
-- Efficient handling of cascading matches
+- **O(log n)** for map lookup to get best orders (due to map structure)
+- **O(1)** amortized for trade generation (number of trades bounded by order quantities)
+- **O(1)** for order removal (iterator-based erase)
+- **O(k)** for cascading matches where k is number of matching price levels
+- **Queue Operations**: O(1) amortized push/pop with minimal contention (single consumer)
+
+### Scalability
+- Single-threaded matching core (no contention on OrderBook)
+- Multi-producer via thread-safe queue
+- Single consumer for deterministic trade ordering
 
 ## License
 
