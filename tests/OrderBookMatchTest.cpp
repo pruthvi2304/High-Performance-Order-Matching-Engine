@@ -21,7 +21,7 @@ TEST_F(OrderBookMatchTest, EmptyOrderBook) {
 
 /// @test Verify that only buy orders (no sell orders) produce no trades
 TEST_F(OrderBookMatchTest, OnlyBuyOrders) {
-    Order buy1(1,OrderSide::BUY, 100.0, 10, true);
+    Order buy1({1,OrderSide::BUY, 100.0, 10, true});
     order_book.add_order(buy1);
     
     auto trades = order_book.match();
@@ -140,4 +140,25 @@ TEST_F(OrderBookMatchTest, TradePriceUsesAskPrice) {
     
     auto trades = order_book.match();
     EXPECT_EQ(trades[0].price, 95.0);
+}
+
+// @test Add 5–6 mixed orders. Verify FIFO behavior. Try multiple price levels
+TEST_F(OrderBookMatchTest, FIFOBehaviorMultiplePriceLevels) {
+    Order buy1(1, OrderSide::BUY, 105.0, 10, true);
+    Order buy2(2, OrderSide::BUY, 104.0, 10, true);
+    Order sell1(3, OrderSide::SELL, 100.0, 5, false);
+    Order sell2(4, OrderSide::SELL, 101.0, 10, false);
+    Order sell3(5, OrderSide::SELL, 102.0, 10, false);
+    
+    order_book.add_order(buy1);    
+    order_book.add_order(buy2);
+    order_book.add_order(sell1);
+    order_book.add_order(sell2);
+    order_book.add_order(sell3);
+    
+    auto trades = order_book.match();
+    EXPECT_EQ(trades.size(), 4);
+    EXPECT_EQ(trades[0].sell_order_id, 3); // First sell order matched first
+    EXPECT_EQ(trades[1].sell_order_id, 4); // Second sell order matched second
+    EXPECT_EQ(trades[2].sell_order_id, 4); // Third sell order matched last
 }

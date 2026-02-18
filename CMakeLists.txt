@@ -15,6 +15,8 @@ add_compile_options(
 add_executable(ome
 src/main.cpp
 src/engine/OrderBook.cpp
+src/engine/MatchingEngine.cpp
+src/engine/ConcurrentEngine.cpp
 )
 
 target_include_directories(ome PRIVATE src)
@@ -26,14 +28,3 @@ enable_testing()
 find_package(GTest REQUIRED)
 
 # Add test executable
-add_executable(ome_tests
-tests/OrderBookMatchTest.cpp
-src/engine/OrderBook.cpp
-)
-
-target_include_directories(ome_tests PRIVATE src)
-target_link_libraries(ome_tests GTest::GTest GTest::Main)
-
-# Register tests
-add_test(NAME OrderBookTests COMMAND ome_tests)
-

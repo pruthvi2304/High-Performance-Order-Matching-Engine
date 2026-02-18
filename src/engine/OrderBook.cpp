@@ -22,6 +22,10 @@ std::vector<Trade> OrderBook::match(){
         
         if (highest_buy_it->first >= lowest_sell_it->first) {
             // Match found
+
+            // std::cout << "Matching orders: Buy Price " << highest_buy_it->first 
+            //      << " with Sell Price " << lowest_sell_it->first << std::endl;
+
             Order& buy_order = highest_buy_it->second.front();
             Order& sell_order = lowest_sell_it->second.front();
             
@@ -29,6 +33,7 @@ std::vector<Trade> OrderBook::match(){
             double trade_price = lowest_sell_it->first; // Trade at sell price
             
             if (trade_quantity <= 0) {
+                std::cerr << "Error: Trade quantity is non-positive. This should not happen." << std::endl;
                 break; // No quantity to trade
             }
             
@@ -44,16 +49,39 @@ std::vector<Trade> OrderBook::match(){
                 if (highest_buy_it->second.empty()) {
                     buy_book.erase(highest_buy_it);
                 }
+                // else{
+
+                //     std::cout << "Updated Buy Order ID " << buy_order.order_id 
+                //          << " Remaining Quantity " << buy_order.quantity << std::endl;
+                // }
             }
+            // else{
+            //     std::cout << "Partial match: Buy Order ID " << buy_order.order_id 
+            //              << " Remaining Quantity " << buy_order.quantity 
+            //              << " Sell Order ID " << sell_order.order_id 
+            //              << " Remaining Quantity " << sell_order.quantity << std::endl;
+            // }
             if (sell_order.quantity == 0) {
                 lowest_sell_it->second.pop_front();
                 if (lowest_sell_it->second.empty()) {
                     sell_book.erase(lowest_sell_it);
                 }
-            }
+            //     else{
+            //         std::cout << "Updated Sell Order ID " << sell_order.order_id 
+            //              << " Remaining Quantity " << sell_order.quantity << std::endl;
+            //     }
+            // }else{
+            //     std::cout << "Partial match: Buy Order ID " << buy_order.order_id 
+            //              << " Remaining Quantity " << buy_order.quantity 
+            //              << " Sell Order ID " << sell_order.order_id 
+            //              << " Remaining Quantity " << sell_order.quantity << std::endl;
+         }
         } else {
+            std::cerr << "No match possible: Highest Buy Price " << highest_buy_it->first 
+                 << " is less than Lowest Sell Price " << lowest_sell_it->first << std::endl;
             break; // No more matches possible
         }
     }
     return trades;
-}
+}    
+
